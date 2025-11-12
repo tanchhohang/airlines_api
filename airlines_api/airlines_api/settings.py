@@ -37,6 +37,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    
+    'rest_framework',
+    'bookings',
 ]
 
 MIDDLEWARE = [
@@ -69,6 +72,8 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'airlines_api.wsgi.application'
 
+
+AUTH_USER_MODEL = 'bookings.User'
 
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
