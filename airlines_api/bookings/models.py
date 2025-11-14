@@ -3,17 +3,17 @@ from django.contrib.auth.models import AbstractUser
 
 #Abstract user provides authentication but need to define all the fields
 class User(AbstractUser):
-    userID = models.CharField(unique=True, max_length=100)
+    user_id = models.CharField(unique=True, max_length=100)
     api_pasword = models.CharField(max_length=100)
-    agencyID = models.CharField(max_length=100)
+    agency_id = models.CharField(max_length=100)
 
 class Sector(models.Model):
-    sectorCode = models.CharField(unique=True, max_length=3)
-    sectorName = models.CharField(max_length=100)
+    sector_code = models.CharField(unique=True, max_length=3)
+    sector_name = models.CharField(max_length=100)
 
 class Airline(models.Model):
-    airlineID = models.CharField(max_length=50)
-    airlineName = models.CharField(max_length=100)
+    airline_id = models.CharField(max_length=50)
+    airline_name = models.CharField(max_length=100)
 
 class Booking(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
