@@ -1,6 +1,11 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 
+class PassengerType(models.TextChoices):
+    ADULT = 'ADT', 'Adult'
+    CHILD = 'CHD', 'Child'
+    INFANT = 'INF', 'Infant'
+
 #Abstract user provides authentication but need to define all the fields
 class User(AbstractUser):
     user_id = models.CharField(unique=True, max_length=100)
@@ -14,6 +19,7 @@ class Sector(models.Model):
 class Airline(models.Model):
     airline_id = models.CharField(max_length=50)
     airline_name = models.CharField(max_length=100)
+    fare = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
 
 class Booking(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -35,14 +41,16 @@ class Booking(models.Model):
 
 class Passenger(models.Model):
     booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='passengers')
-    pax_type = models.CharField(max_length=10)
+    pax_type = models.CharField(
+        choices=PassengerType.choices,
+        default=PassengerType.ADULT
+    )
     title = models.CharField(max_length=10)
     gender = models.CharField(max_length=1)
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
     nationality = models.CharField(max_length=2)
     ticket_no = models.CharField(max_length=50, blank=True, null=True)
-    fare = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     fuel_surcharge = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     tax = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     
