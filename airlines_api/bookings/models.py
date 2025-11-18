@@ -9,7 +9,7 @@ class PassengerType(models.TextChoices):
 #Abstract user provides authentication but need to define all the fields
 class User(AbstractUser):
     user_id = models.CharField(unique=True, max_length=100)
-    api_pasword = models.CharField(max_length=100)
+    api_password = models.CharField(max_length=100)
     agency_id = models.CharField(max_length=100)
 
 class Sector(models.Model):
