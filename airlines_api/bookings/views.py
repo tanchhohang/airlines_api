@@ -18,7 +18,7 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = UserSerializer
 
 class SectorViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset= Sector.objects.all()
+    queryset= Sector.objects.all()  
     serializer_class = SectorSerializer
     permission_classes = [AllowAny]
 
@@ -42,7 +42,7 @@ class SectorViewSet(viewsets.ReadOnlyModelViewSet):
                 headers={'Content-Type': 'text/xml'}
             )
             root = ET.fromstring(response.text) #parse xml response to str
-            sector_data = root.find(".//{http://booking.us.org/}return").text
+            sector_data = root.find(".//{http://booking.us.org/}return").text.strip()
             sector_xml = ET.fromstring(sector_data)
             sector_list = []
 
@@ -63,8 +63,8 @@ class SectorViewSet(viewsets.ReadOnlyModelViewSet):
                 'sectors': serializer.data
             })
 
-        except:
-            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class AirlinesViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Airline.objects.all()
@@ -81,7 +81,7 @@ class AirlinesViewSet(viewsets.ReadOnlyModelViewSet):
             <soapenv:Body>
                 <book:CheckBalance>
                     <strUserId>{user.user_id}</strUserId>
-                    <strAirlineId>{airline_id}</strUserId>
+                    <strAirlineId>{airline_id}</strAirlineId>
                 </book:CheckBalance>
             </soapenv:Body>
         </soapenv:Envelope>
@@ -115,10 +115,43 @@ class AirlinesViewSet(viewsets.ReadOnlyModelViewSet):
 class PassengerViewSet(viewsets.ModelViewSet):
     queryset = Passenger.objects.all()
     serializer_class = PassengerSerializer
-    permission_classes = [IsAuthenticated]
 
 class BookingViewSet(viewsets.ModelViewSet):
     queryset = Booking.objects.all()
-    serializer_class = BookingSeriazlizer
+    serializer_class = BookingSerializer
     permission_classes = [IsAuthenticated]
 
+    @action(methods=['POST'], detail=False)
+    def flight_availability(self, request):
+        serializer = FlightAvailabilitySerializer(data=request.data)
+        user = request.user
+        data = serializer.validated_data
+        sector_from = data['sector_from'].sector_code
+        sector_to = data['sector_to'].sector_code
+
+        soap_body = f"""
+        <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+        xmlns:book="http://booking.us.org/">
+            <soapenv:Body>
+                <book:FlightAvailability>
+                    <strUserId>{user.user_id}</strUserId>
+                    <strPassword>{user.api_password}</strPassword>
+                    <strAgencyId>{user.agency_id}</strAgencyId>
+                    <strSectorFrom>{sector_from}</strSectorFrom>
+                    <strSectorTo>{sector_to}</strSectorTo>
+                    <strFlightDate>{data['flight_date']}</strFlightDate>
+                    <strReturnDate>{data.get('return_date', '')}</strReturnDate>
+                    <strTripType>{data['trip_type']}</strTripType>
+                    <strNationality>{data['nationality']}</strNationality>
+                    <intAdult>{data['adult']}</intAdult>
+                    <intChild>{data['child']}</intChild>
+                    <strClientIP>{data['client_ip']}</strClientIP>
+                </book:FlightAvailability>
+            </soapenv:Body>
+        </soapenv:Envelope>
+        """
+
+        #TODO: Check flight details
+
+    # @action(methods=['POST'],detail=False)
+    # def reservation(self,request):
