@@ -166,6 +166,7 @@ class BookingViewSet(viewsets.ModelViewSet):
     @action(methods=['POST'],detail=False)
     def reservation(self,request):
         serializer = ReservationSerializer(data= request.data)
+        serializer.is_valid(raise_exception=True) 
         data = serializer.validated_data
 
         soap_body=f"""
@@ -181,25 +182,27 @@ class BookingViewSet(viewsets.ModelViewSet):
         """
 
         try:
-            response = request.post(
+            response = requests.post(
                 'soapurl',
                 data = soap_body,
                 headers={'Content-Type': 'text/xml'},
             )
 
             root = ET.fromstring(response.text)
-            pnr_detail = root.find(".//{http://booking.us.org/}return").text                 
+            pnr_detail = root.find(".//{http://booking.us.org/}return") 
+            pnr_element = ET.fromstring(pnr_detail.text)                
             reservation_info = {
-                'airline_id':pnr_detail.find('AirlineID').text,
-                'flight_id': pnr_detail.find('FlightId').text,
-                'pnr_no': pnr_detail.find('PNRNO').text,
-                'reservation_status': pnr_detail.find('ReservationStatus').text,
-                'ttl_date': pnr_detail.find('TTLDate').text,
-                'ttl_time': pnr_detail.find('TTLTime').text,
+                'airline_id':pnr_element.find('AirlineID').text,
+                'flight_id': pnr_element.find('FlightId').text,
+                'pnr_no': pnr_element.find('PNRNO').text,
+                'reservation_status': pnr_element.find('ReservationStatus').text,
+                'ttl_date': pnr_element.find('TTLDate').text,
+                'ttl_time': pnr_element.find('TTLTime').text,
             }
             return Response({'reservation info': reservation_info}, status=status.HTTP_200_OK)
-        except:
-            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            print("RESERVATION ERROR:", e)
+            raise
     
     # @action(methods=['POST'], detail=False)
     # def issue_ticket(self.request):
