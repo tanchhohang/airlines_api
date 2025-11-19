@@ -13,6 +13,7 @@ class SectorAPITestCase(APITestCase):
             api_password='apipass123',
             agency_id='AGENCY001'
             )
+        self.client.force_authenticate(self.user)
         self.sector1 = Sector.objects.create(sector_code = 'KTM', sector_name = 'Kathmandu')
         self.sector2 = Sector.objects.create(sector_code = 'PKR', sector_name = 'Pokhara')
 
@@ -137,3 +138,53 @@ class AirlineAPITestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn('balances', response.data)
         self.assertEqual(len(response.data['balances']), 1)
+
+class ReservationAPITestCase(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='testuser',
+            password='testpass123',
+            user_id='USER001',
+            api_password='apipass123',
+            agency_id='AGENCY001'
+        )
+
+        self.reservation_url = reverse('booking-reservation')
+
+    @patch('requests.post')
+    def test_reservation_success(self, mock_post):
+        self.client.force_authenticate(user=self.user)
+
+        mock_response = Mock()
+        mock_response.text = """
+        <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+            xmlns:book="http://booking.us.org/">
+            <soapenv:Body>
+                <book:ReservationResponse>
+                    <book:return><![CDATA[
+                        <PNRDetail>
+                            <AirlineID>U4</AirlineID>
+                            <FlightId>123</FlightId>
+                            <PNRNO>PNR001</PNRNO>
+                            <ReservationStatus>CONFIRMED</ReservationStatus>
+                            <TTLDate>2025-01-01</TTLDate>
+                            <TTLTime>12:00</TTLTime>
+                        </PNRDetail>
+                    ]]></book:return>
+                </book:ReservationResponse>
+            </soapenv:Body>
+        </soapenv:Envelope>
+        """
+        mock_post.return_value = mock_response
+
+        data = {
+            "flight_id": "123",
+            "return_flight_id": ""
+        }
+
+        response = self.client.post(self.reservation_url, data, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('reservation info', response.data)
+        self.assertEqual(response.data['reservation info']['pnr_no'], 'PNR001')
+        self.assertEqual(response.data['reservation info']['reservation_status'], 'CONFIRMED')
