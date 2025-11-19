@@ -20,7 +20,7 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
 class SectorViewSet(viewsets.ReadOnlyModelViewSet):
     queryset= Sector.objects.all()  
     serializer_class = SectorSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     @action(methods=['POST'],detail=False)
     def sector_code(self,request):
@@ -95,7 +95,7 @@ class AirlinesViewSet(viewsets.ReadOnlyModelViewSet):
             )
 
             root = ET.fromstring(response.text)
-            balance_data = root.find(".//{http://booking.us.org/}return").text
+            balance_data = root.find(".//{http://booking.us.org/}return").text.strip()
             balance_xml = ET.fromstring(balance_data)
 
             balance_list = []
@@ -151,7 +151,55 @@ class BookingViewSet(viewsets.ModelViewSet):
         </soapenv:Envelope>
         """
 
-        #TODO: Check flight details
+        #TODO: Parse XML to JSON
+        try:
+            response = requests.post(
+                'soapurl',
+                data=soap_body,
+                headers={'Content-Type': 'text/xml'}
+            )
+            return Response({'response': response.text}, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+ 
+    @action(methods=['POST'],detail=False)
+    def reservation(self,request):
+        serializer = ReservationSerializer(data= request.data)
+        data = serializer.validated_data
 
-    # @action(methods=['POST'],detail=False)
-    # def reservation(self,request):
+        soap_body=f"""
+        <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+        xmlns:book="http://booking.us.org/">
+            <soapenv:Body>
+                <book:Reservation>
+                    <strFlightId>{data['flight_id']}</strFlightId>
+                    <strReturnFlightId>{data.get('return_flight_id', '')}</strReturnFlightId>
+                </book:Reservation>
+            </soapenv:Body>
+        </soapenv:Envelope>
+        """
+
+        try:
+            response = request.post(
+                'soapurl',
+                data = soap_body,
+                headers={'Content-Type': 'text/xml'},
+            )
+
+            root = ET.fromstring(response.text)
+            pnr_detail = root.find(".//{http://booking.us.org/}return").text                 
+            reservation_info = {
+                'airline_id':pnr_detail.find('AirlineID').text,
+                'flight_id': pnr_detail.find('FlightId').text,
+                'pnr_no': pnr_detail.find('PNRNO').text,
+                'reservation_status': pnr_detail.find('ReservationStatus').text,
+                'ttl_date': pnr_detail.find('TTLDate').text,
+                'ttl_time': pnr_detail.find('TTLTime').text,
+            }
+            return Response({'reservation info': reservation_info}, status=status.HTTP_200_OK)
+        except:
+            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    # @action(methods=['POST'], detail=False)
+    # def issue_ticket(self.request):
