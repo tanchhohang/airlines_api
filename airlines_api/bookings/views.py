@@ -14,7 +14,14 @@ from rest_framework.response import Response
 import xml.etree.ElementTree as ET
 
 class UserViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = User.objects.all()
+    queryset = Booking.objects.select_related(
+        'user',
+        'airline', 
+        'departure',
+        'arrival'
+    ).prefetch_related(
+        'passengers'
+    )
     serializer_class = UserSerializer
 
 class SectorViewSet(viewsets.ReadOnlyModelViewSet):
@@ -117,7 +124,12 @@ class PassengerViewSet(viewsets.ModelViewSet):
     serializer_class = PassengerSerializer
 
 class BookingViewSet(viewsets.ModelViewSet):
-    queryset = Booking.objects.all()
+    queryset = Passenger.objects.select_related(
+        'booking',
+        'booking__airline',
+        'booking__departure',
+        'booking__arrival'
+    )
     serializer_class = BookingSerializer
     permission_classes = [IsAuthenticated]
 
