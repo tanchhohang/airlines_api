@@ -166,7 +166,7 @@ class ReservationAPITestCase(APITestCase):
                             <AirlineID>U4</AirlineID>
                             <FlightId>123</FlightId>
                             <PNRNO>PNR001</PNRNO>
-                            <ReservationStatus>CONFIRMED</ReservationStatus>
+                            <ReservationStatus>HK</ReservationStatus>
                             <TTLDate>2025-01-01</TTLDate>
                             <TTLTime>12:00</TTLTime>
                         </PNRDetail>
@@ -187,4 +187,232 @@ class ReservationAPITestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn('reservation info', response.data)
         self.assertEqual(response.data['reservation info']['pnr_no'], 'PNR001')
-        self.assertEqual(response.data['reservation info']['reservation_status'], 'CONFIRMED')
+        self.assertEqual(response.data['reservation info']['reservation_status'], 'HK')
+
+class FlightAvailabilityAPITestCase(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='testuser', password='testpass123',
+            user_id='USER001', api_password='apipass123', agency_id='AGENCY001'
+        )
+        self.sector_ktm = Sector.objects.create(sector_code='KTM', sector_name='Kathmandu')
+        self.sector_pkr = Sector.objects.create(sector_code='PKR', sector_name='Pokhara')
+        self.flight_availability_url = reverse('booking-flight-availability')
+
+    @patch('requests.post')
+    def test_flight_availability_one_way(self, mock_post):
+        self.client.force_authenticate(user=self.user)
+        mock_response = Mock()
+        mock_response.text = """
+        <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" book="" xmlns:book="http://booking.us.org/">
+            <soapenv:Body>
+                <book:FlightAvailabilityResponse>
+                    <book:return><![CDATA[
+                    <Flightavailability>
+                        <Outbound>
+                            <Availability>
+                                <Airline>U4</Airline>
+                                <AirlineLogo>http://test.com/U4.jpg</AirlineLogo>
+                                <FlightDate>30-SEP-2025</FlightDate>
+                                <FlightNo>U4123</FlightNo>
+                                <Departure>KATHMANDU</Departure>
+                                <DepartureTime>10:00</DepartureTime>
+                                <Arrival>POKHARA</Arrival>
+                                <ArrivalTime>10:30</ArrivalTime>
+                                <AircraftType>TEST</AircraftType>
+                                <Adult>1</Adult>
+                                <Child>0</Child>
+                                <Infant>0</Infant>
+                                <FlightId>abc-123-def</FlightId>
+                                <FlightClassCode>Y</FlightClassCode>
+                                <Currency>NPR</Currency>
+                                <AdultFare>5000</AdultFare>
+                                <ChildFare>3500</ChildFare>
+                                <InfantFare>500</InfantFare>
+                                <FuelSurcharge>1500</FuelSurcharge>
+                                <Tax>200</Tax>
+                                <Refundable>T</Refundable>
+                                <FreeBaggage>20KG</FreeBaggage>
+                                <AgencyCommission>500</AgencyCommission>
+                            </Availability>
+                        </Outbound>
+                        <Inbound/>
+                    </Flightavailability>]]></book:return>
+                </book:FlightAvailabilityResponse>
+            </soapenv:Body>
+        </soapenv:Envelope>
+        """
+        mock_post.return_value = mock_response
+
+        data = {
+            'sector_from': self.sector_ktm.pk,
+            'sector_to': self.sector_pkr.pk,
+            'flight_date': '30-09-2025',
+            'trip_type': 'O',
+            'nationality': 'NP',
+            'adult': 1,
+            'child': 0,
+            'client_ip': '127.0.0.1'
+        }
+        response = self.client.post(self.flight_availability_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('outbound_flights', response.data)
+        self.assertEqual(len(response.data['outbound_flights']), 1)
+        self.assertEqual(response.data['outbound_flights'][0]['flight_id'], 'abc-123-def')
+        self.assertEqual(response.data['outbound_flights'][0]['total_adult_fare'], 6700)  # 5000+1500+200
+
+    @patch('requests.post')
+    def test_flight_availability_round_trip(self, mock_post):
+        self.client.force_authenticate(user=self.user)
+        mock_response = Mock()
+        mock_response.text = """
+         <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" book="" xmlns:book="http://booking.us.org/">
+            <soapenv:Body>
+                <book:FlightAvailabilityResponse>
+                    <book:return><![CDATA[
+                    <Flightavailability>
+                        <Outbound>
+                            <Availability>
+                                <Airline>U4</Airline>
+                                <AirlineLogo>http://test.com/U4.jpg</AirlineLogo>
+                                <FlightDate>30-SEP-2025</FlightDate>
+                                <FlightNo>U4123</FlightNo>
+                                <Departure>KATHMANDU</Departure>
+                                <DepartureTime>10:00</DepartureTime>
+                                <Arrival>POKHARA</Arrival>
+                                <ArrivalTime>10:30</ArrivalTime>
+                                <AircraftType>ATR72</AircraftType>
+                                <Adult>1</Adult><Child>0</Child><Infant>0</Infant>
+                                <FlightId>outbound-123</FlightId>
+                                <FlightClassCode>Y</FlightClassCode>
+                                <Currency>NPR</Currency>
+                                <AdultFare>5000</AdultFare>
+                                <ChildFare>3500</ChildFare>
+                                <InfantFare>500</InfantFare>
+                                <FuelSurcharge>1500</FuelSurcharge>
+                                <Tax>200</Tax>
+                                <Refundable>T</Refundable>
+                                <FreeBaggage>20KG</FreeBaggage>
+                                <AgencyCommission>500</AgencyCommission>
+                            </Availability>
+                        </Outbound>
+                        <Inbound>
+                            <Availability>
+                                <Airline>U4</Airline>
+                                <FlightDate>05-OCT-2025</FlightDate>
+                                <FlightNo>U4124</FlightNo>
+                                <Departure>POKHARA</Departure>
+                                <DepartureTime>14:00</DepartureTime>
+                                <Arrival>KATHMANDU</Arrival>
+                                <ArrivalTime>14:30</ArrivalTime>
+                                <FlightId>inbound-456</FlightId>
+                                <AdultFare>5000</AdultFare>
+                                <ChildFare>3500</ChildFare>
+                                <FuelSurcharge>1500</FuelSurcharge>
+                                <Tax>200</Tax>
+                            </Availability>
+                        </Inbound>
+                    </Flightavailability>]]></book:return>
+                </book:FlightAvailabilityResponse>
+            </soapenv:Body>
+        </soapenv:Envelope>
+        """
+        mock_post.return_value = mock_response
+
+        data = {
+            'sector_from': self.sector_ktm.pk,
+            'sector_to': self.sector_pkr.pk,
+            'flight_date': '30-09-2025',
+            'return_date': '05-10-2025',
+            'trip_type': 'R',
+            'nationality': 'NP',
+            'adult': 1,
+            'child': 0,
+            'client_ip': '127.0.0.1'
+        }
+        response = self.client.post(self.flight_availability_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('outbound_flights', response.data)
+        self.assertIn('inbound_flights', response.data)
+        self.assertEqual(len(response.data['inbound_flights']), 1)
+
+class IssueTicketAPITestCase(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='testuser', password='testpass123',
+            user_id='USER001', api_password='apipass123', agency_id='AGENCY001'
+        )
+        self.issue_ticket_url = reverse('booking-issue-ticket')
+
+    @patch('requests.post')
+    def test_issue_ticket(self, mock_post):
+        self.client.force_authenticate(user=self.user)
+        mock_response = Mock()
+        mock_response.text = """
+        <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" book="" xmlns:book="http://booking.us.org/">
+            <soapenv:Body>
+                <book:IssueTicketResponse>
+                    <book:Itinerary>
+                        <book:Passenger>
+                            <book:Airline>U4</book:Airline>
+                            <book:PnrNo>ABC123</book:PnrNo>
+                            <book:Title>MR</book:Title>
+                            <book:Gender>M</book:Gender>
+                            <book:FirstName>TANCHHO</book:FirstName>
+                            <book:LastName>LIMBU</book:LastName>
+                            <book:PaxType>ADULT</book:PaxType>
+                            <book:Nationality>NP</book:Nationality>
+                            <book:IssueFrom>AGENCY001</book:IssueFrom>
+                            <book:AgencyName>Test Agency</book:AgencyName>
+                            <book:IssueDate>21-NOV-2025</book:IssueDate>
+                            <book:IssueBy>USER001</book:IssueBy>
+                            <book:FlightNo>U4123</book:FlightNo>
+                            <book:FlightDate>05-OCT-2025</book:FlightDate>
+                            <book:Departure>KTM</book:Departure>
+                            <book:FlightTime>1000</book:FlightTime>
+                            <book:TicketNo>9999999999</book:TicketNo>
+                            <book:BarCodeValue>5555555</book:BarCodeValue>
+                            <book:BarcodeImage></book:BarcodeImage>
+                            <book:Arrival>PKR</book:Arrival>
+                            <book:ArrivalTime>10:30</book:ArrivalTime>
+                            <book:Sector>KTM-PKR</book:Sector>
+                            <book:ClassCode>Y</book:ClassCode>
+                            <book:Currency>NPR</book:Currency>
+                            <book:Fare>5000</book:Fare>
+                            <book:Surcharge>1500</book:Surcharge>
+                            <book:TaxCurrency>NPR</book:TaxCurrency>
+                            <book:Tax>200</book:Tax>
+                            <book:CommissionAmount>500</book:CommissionAmount>
+                            <book:Refundable>Refundable</book:Refundable>
+                            <book:ReportingTime>One hour in adnvace</book:ReportingTime>
+                            <book:FreeBaggage>20KG</book:FreeBaggage>
+                        </book:Passenger>
+                    </book:Itinerary>
+                </book:IssueTicketResponse>
+            </soapenv:Body>
+        </soapenv:Envelope>
+        """
+        mock_post.return_value = mock_response
+
+        data = {
+            'flight_id': 'abc-123-def',
+            'return_flight_id': '',
+            'contact_name': 'TANCHHO LIMBU',
+            'contact_email': 'a@b.com',
+            'contact_mobile': '9999999999',
+            'passenger_detail': [{
+                'pax_type': 'ADULT',
+                'title': 'MR',
+                'gender': 'M',
+                'first_name': 'TANCHHO',
+                'last_name': 'LIMBU',
+                'nationality': 'NP',
+                'remarks': 'N/A'
+            }]
+        }
+        response = self.client.post(self.issue_ticket_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('itinerary', response.data)
+        self.assertEqual(response.data['itinerary'][0]['ticket_no'], '9999999999')
+        self.assertEqual(response.data['itinerary'][0]['pnr_no'], 'ABC123')
+
