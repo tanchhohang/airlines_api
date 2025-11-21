@@ -49,13 +49,22 @@ class ReservationSerializer(serializers.Serializer):
     flight_id = serializers.CharField()
     return_flight_id = serializers.CharField(required = False, allow_blank = True)
 
+class PassengerDetailSerializer(serializers.Serializer):
+    pax_type = serializers.CharField()
+    title = serializers.CharField()
+    gender = serializers.CharField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+    nationality = serializers.CharField()
+    remarks = serializers.CharField(required=False, allow_blank=True)
+    
 class IssueTicketSerializer(serializers.Serializer):
     flight_id = serializers.CharField()
     return_flight_id = serializers.CharField(required = False, allow_blank = True)
     contact_name = serializers.CharField()
     contact_email = serializers.EmailField()
     contact_mobile = serializers.CharField()
-    passenger_detail = PassengerSerializer(many=True)
+    passenger_detail = PassengerDetailSerializer(many=True)
 
 class GetItinerarySerializer(serializers.Serializer):
     pno_no = serializers.CharField()
