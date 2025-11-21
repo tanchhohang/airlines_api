@@ -1,4 +1,4 @@
-import requests
+import requests, json
 from django.shortcuts import render
 from .serializer import *
 from rest_framework import viewsets, filters
@@ -125,6 +125,7 @@ class BookingViewSet(viewsets.ModelViewSet):
     def flight_availability(self, request):
         serializer = FlightAvailabilitySerializer(data=request.data)
         user = request.user
+        serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         sector_from = data['sector_from'].sector_code
         sector_to = data['sector_to'].sector_code
@@ -278,8 +279,93 @@ class BookingViewSet(viewsets.ModelViewSet):
             print("RESERVATION ERROR:", e)
             raise
     
-    # @action(methods=['POST'], detail=False)
-    # def issue_ticket(self.request):
+    @action(methods=['POST'], detail=False)
+    def issue_ticket(self,request): #online help on this one
+        serializer = IssueTicketSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        #building passenger XML
+        xml_parts = ['<?xml version="1.0" ?><PassengerDetail>']
+        for pax in data['passenger_detail']:
+            xml_parts.append(f"""<Passenger>
+                <PaxType>{pax['pax_type']}</PaxType>
+                <Title>{pax['title']}</Title>
+                <Gender>{pax['gender']}</Gender>
+                <FirstName>{pax['first_name']}</FirstName>
+                <LastName>{pax['last_name']}</LastName>
+                <Nationality>{pax['nationality']}</Nationality>
+                <PaxRemarks>{pax.get('remarks', 'N/A')}</PaxRemarks>
+            </Passenger>""")
+        xml_parts.append('</PassengerDetail>')
+        passenger_xml = ''.join(xml_parts)
+        
+        soap_body = f"""
+        <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+        xmlns:book="http://booking.us.org/">
+            <soapenv:Body>
+                <book:IssueTicket>
+                    <strFlightId>{data['flight_id']}</strFlightId>
+                    <strReturnFlightId>{data.get('return_flight_id', '')}</strReturnFlightId>
+                    <strContactName>{data['contact_name']}</strContactName>
+                    <strContactEmail>{data['contact_email']}</strContactEmail>
+                    <strContactMobile>{data['contact_mobile']}</strContactMobile>
+                    <strPassengerDetail><![CDATA[{passenger_xml}]]></strPassengerDetail>
+                </book:IssueTicket>
+            </soapenv:Body>
+        </soapenv:Envelope>
+        """
+        
+        try:
+            response = requests.post(
+                'SOAP_ENDPOINT_URL', 
+                data=soap_body, 
+                headers={'Content-Type': 'text/xml'}
+                )
+            root = ET.fromstring(response.text)
+            ns = {'book': 'http://booking.us.org/'}
+            itinerary = root.find('.//book:Itinerary', ns)
+            passengers = []
+
+            for p in itinerary.findall('book:Passenger', ns):
+                passengers.append({
+                    'airline': p.find('book:Airline', ns).text,
+                    'pnr_no': p.find('book:PnrNo', ns).text,
+                    'title': p.find('book:Title', ns).text,
+                    'gender': p.find('book:Gender', ns).text,
+                    'first_name': p.find('book:FirstName', ns).text,
+                    'last_name': p.find('book:LastName', ns).text,
+                    'pax_type': p.find('book:PaxType', ns).text,
+                    'nationality': p.find('book:Nationality', ns).text,
+                    'issue_from': p.find('book:IssueFrom', ns).text,
+                    'agency_name': p.find('book:AgencyName', ns).text,
+                    'issue_date': p.find('book:IssueDate', ns).text,
+                    'issue_by': p.find('book:IssueBy', ns).text,
+                    'flight_no': p.find('book:FlightNo', ns).text,
+                    'flight_date': p.find('book:FlightDate', ns).text,
+                    'departure': p.find('book:Departure', ns).text,
+                    'flight_time': p.find('book:FlightTime', ns).text,
+                    'ticket_no': p.find('book:TicketNo', ns).text,
+                    'barcode_value': p.find('book:BarCodeValue', ns).text,
+                    'barcode_image': p.find('book:BarcodeImage', ns).text,
+                    'arrival': p.find('book:Arrival', ns).text,
+                    'arrival_time': p.find('book:ArrivalTime', ns).text,
+                    'sector': p.find('book:Sector', ns).text,
+                    'class_code': p.find('book:ClassCode', ns).text,
+                    'currency': p.find('book:Currency', ns).text,
+                    'fare': p.find('book:Fare', ns).text,
+                    'surcharge': p.find('book:Surcharge', ns).text,
+                    'tax_currency': p.find('book:TaxCurrency', ns).text,
+                    'tax': p.find('book:Tax', ns).text,
+                    'commission_amount': p.find('book:CommissionAmount', ns).text,
+                    'refundable': p.find('book:Refundable', ns).text,
+                    'reporting_time': p.find('book:ReportingTime', ns).text,
+                    'free_baggage': p.find('book:FreeBaggage', ns).text,
+                })
+            
+            return Response({'itinerary': passengers, 'message': 'Ticket issued successfully'}, status=status.HTTP_200_OK)
+        except:
+            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
     @action(methods=['POST'], detail=False)
