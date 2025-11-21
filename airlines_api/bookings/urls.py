@@ -7,7 +7,7 @@ router.register('users',views.UserViewSet)
 router.register('sectors', views.SectorViewSet)
 router.register('airlines', views.AirlinesViewSet)
 router.register('passengers', views.PassengerViewSet)
-router.register('bookings', views.BookingViewSet)
+router.register('bookings', views.BookingViewSet,basename='booking-test')
 
 urlpatterns = [
     path('', include(router.urls)),
