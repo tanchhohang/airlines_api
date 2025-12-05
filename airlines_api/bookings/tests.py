@@ -149,7 +149,7 @@ class ReservationAPITestCase(APITestCase):
             agency_id='AGENCY001'
         )
 
-        self.reservation_url = reverse('booking-reservation')
+        self.reservation_url = reverse('booking-test-reservation')
 
     @patch('requests.post')
     def test_reservation_success(self, mock_post):
@@ -197,7 +197,7 @@ class FlightAvailabilityAPITestCase(APITestCase):
         )
         self.sector_ktm = Sector.objects.create(sector_code='KTM', sector_name='Kathmandu')
         self.sector_pkr = Sector.objects.create(sector_code='PKR', sector_name='Pokhara')
-        self.flight_availability_url = reverse('booking-flight-availability')
+        self.flight_availability_url = reverse('booking-test-flight-availability')
 
     @patch('requests.post')
     def test_flight_availability_one_way(self, mock_post):
@@ -342,7 +342,7 @@ class IssueTicketAPITestCase(APITestCase):
             username='testuser', password='testpass123',
             user_id='USER001', api_password='apipass123', agency_id='AGENCY001'
         )
-        self.issue_ticket_url = reverse('booking-issue-ticket')
+        self.issue_ticket_url = reverse('booking-test-issue-ticket')
 
     @patch('requests.post')
     def test_issue_ticket(self, mock_post):
@@ -416,3 +416,237 @@ class IssueTicketAPITestCase(APITestCase):
         self.assertEqual(response.data['itinerary'][0]['ticket_no'], '9999999999')
         self.assertEqual(response.data['itinerary'][0]['pnr_no'], 'ABC123')
 
+
+
+class GetItineraryAPITestCase(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='testuser', password='testpass123',
+            user_id='USER001', api_password='apipass123', agency_id='AGENCY001'
+        )
+        self.get_itinerary_url = reverse('booking-test-get-itinerary')
+
+    @patch('requests.post')
+    def test_get_itinerary_by_pnr(self, mock_post):
+        self.client.force_authenticate(user=self.user)
+        mock_response = Mock()
+        mock_response.text = """
+        <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+            xmlns:book="http://booking.us.org/">
+            <soapenv:Body>
+                <book:GetItineraryResponse>
+                    <book:Itinerary><![CDATA[
+                        <Itinerary>
+                            <Passenger>
+                                <Airline>U4</Airline>
+                                <PnrNo>ABC123</PnrNo>
+                                <Title>MR</Title>
+                                <Gender>M</Gender>
+                                <FirstName>TANCHHO</FirstName>
+                                <LastName>LIMBU</LastName>
+                                <PaxType>ADULT</PaxType>
+                                <Nationality>NP</Nationality>
+                                <TicketNo>9999999999</TicketNo>
+                                <FlightNo>U4123</FlightNo>
+                                <FlightDate>05-OCT-2025</FlightDate>
+                                <Departure>KTM</Departure>
+                                <Arrival>PKR</Arrival>
+                            </Passenger>
+                        </Itinerary>
+                    ]]></book:Itinerary>
+                </book:GetItineraryResponse>
+            </soapenv:Body>
+        </soapenv:Envelope>
+        """
+        mock_post.return_value = mock_response
+
+        data = {
+            'pnr_no': 'ABC123',
+            'ticket_no': '',
+            'airline_id': 'U4'
+        }
+
+        response = self.client.post(self.get_itinerary_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('itinerary', response.data)
+
+    @patch('requests.post')
+    def test_get_itinerary_by_ticket_no(self, mock_post):
+        self.client.force_authenticate(user=self.user)
+        mock_response = Mock()
+        mock_response.text = """
+        <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+            xmlns:book="http://booking.us.org/">
+            <soapenv:Body>
+                <book:GetItineraryResponse>
+                    <book:Itinerary><![CDATA[
+                        <Itinerary>
+                            <Passenger>
+                                <Airline>U4</Airline>
+                                <PnrNo>ABC123</PnrNo>
+                                <TicketNo>9999999999</TicketNo>
+                                <FirstName>TANCHHO</FirstName>
+                                <LastName>LIMBU</LastName>
+                            </Passenger>
+                        </Itinerary>
+                    ]]></book:Itinerary>
+                </book:GetItineraryResponse>
+            </soapenv:Body>
+        </soapenv:Envelope>
+        """
+        mock_post.return_value = mock_response
+
+        data = {
+            'pnr_no': '',
+            'ticket_no': '9999999999',
+            'airline_id': 'U4'
+        }
+
+        response = self.client.post(self.get_itinerary_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('itinerary', response.data)
+
+
+class GetFlightDetailAPITestCase(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='testuser', password='testpass123',
+            user_id='USER001', api_password='apipass123', agency_id='AGENCY001'
+        )
+        self.get_flight_detail_url = reverse('booking-test-get-flight-detail')
+
+    @patch('requests.post')
+    def test_get_flight_detail_success(self, mock_post):
+        self.client.force_authenticate(user=self.user)
+        mock_response = Mock()
+        mock_response.text = """
+        <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+            xmlns:book="http://booking.us.org/">
+            <soapenv:Body>
+                <book:GetFlightDetailResponse>
+                    <book:Availability>
+                        <Airline>U4</Airline>
+                        <FlightNo>U4123</FlightNo>
+                        <FlightDate>30-SEP-2025</FlightDate>
+                        <Departure>KATHMANDU</Departure>
+                        <DepartureTime>10:00</DepartureTime>
+                        <Arrival>POKHARA</Arrival>
+                        <ArrivalTime>10:30</ArrivalTime>
+                        <FlightId>abc-123-def</FlightId>
+                        <AdultFare>5000</AdultFare>
+                        <ChildFare>3500</ChildFare>
+                        <FuelSurcharge>1500</FuelSurcharge>
+                        <Tax>200</Tax>
+                        <Currency>NPR</Currency>
+                    </book:Availability>
+                </book:GetFlightDetailResponse>
+            </soapenv:Body>
+        </soapenv:Envelope>
+        """
+        mock_post.return_value = mock_response
+
+        data = {'flight_id': 'abc-123-def'}
+        response = self.client.post(self.get_flight_detail_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('flight_detail', response.data)
+
+
+class GetPnrDetailAPITestCase(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='testuser', password='testpass123',
+            user_id='USER001', api_password='apipass123', agency_id='AGENCY001'
+        )
+        self.get_pnr_detail_url = reverse('booking-test-get-pnr-detail')
+
+    @patch('requests.post')
+    def test_get_pnr_detail_returns_url(self, mock_post):
+        self.client.force_authenticate(user=self.user)
+        mock_response = Mock()
+        mock_response.text = """
+        <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+            xmlns:book="http://booking.us.org/">
+            <soapenv:Body>
+                <book:GetPnrDetailResponse>
+                    <book:return>https://booking-system.com/pnr/ABC123</book:return>
+                </book:GetPnrDetailResponse>
+            </soapenv:Body>
+        </soapenv:Envelope>
+        """
+        mock_post.return_value = mock_response
+
+        data = {
+            'pnr_no': 'ABC123',
+            'last_name': 'LIMBU'
+        }
+
+        response = self.client.post(self.get_pnr_detail_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('pnr_maintenance_url', response.data)
+        self.assertEqual(response.data['pnr_maintenance_url'], 'https://booking-system.com/pnr/ABC123')
+
+
+class SalesReportAPITestCase(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='testuser', password='testpass123',
+            user_id='USER001', api_password='apipass123', agency_id='AGENCY001'
+        )
+        self.sales_report_url = reverse('booking-test-sales-report')
+
+    @patch('requests.post')
+    def test_sales_report_success(self, mock_post):
+        self.client.force_authenticate(user=self.user)
+        mock_response = Mock()
+        mock_response.text = """
+        <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+            xmlns:book="http://booking.us.org/">
+            <soapenv:Body>
+                <book:SalesReportResponse>
+                    <book:SalesSummary>
+                        <TicketDetail>
+                            <PnrNo>ABC123</PnrNo>
+                            <Airline>U4</Airline>
+                            <IssueDate>21-NOV-2025</IssueDate>
+                            <FlightNo>U4123</FlightNo>
+                            <FlightDate>30-SEP-2025</FlightDate>
+                            <SectorPair>KTM-PKR</SectorPair>
+                            <ClassCode>Y</ClassCode>
+                            <TicketNo>9999999999</TicketNo>
+                            <PassengerName>TANCHHO LIMBU</PassengerName>
+                            <Nationality>NP</Nationality>
+                            <PaxType>ADULT</PaxType>
+                            <Currency>NPR</Currency>
+                            <Fare>5000</Fare>
+                            <FSC>1500</FSC>
+                            <TAX>200</TAX>
+                        </TicketDetail>
+                    </book:SalesSummary>
+                </book:SalesReportResponse>
+            </soapenv:Body>
+        </soapenv:Envelope>
+        """
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+
+        data = {
+        'from_date': '01-NOV-2025',
+        'to_date': '30-NOV-2025'
+        }
+
+        response = self.client.post(self.sales_report_url, data, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('sales_report', response.data)
+        self.assertIn('total_tickets', response.data)
+        self.assertEqual(len(response.data['sales_report']), 1)
+        self.assertEqual(response.data['total_tickets'], 1)
+        
+        ticket = response.data['sales_report'][0]
+        self.assertEqual(ticket['pnr_no'], 'ABC123')
+        self.assertEqual(ticket['airline'], 'U4')
+        self.assertEqual(ticket['ticket_no'], '9999999999')
+        self.assertEqual(ticket['passenger_name'], 'TANCHHO LIMBU')
+        self.assertEqual(ticket['fare'], '5000')
+        self.assertEqual(ticket['fsc'], '1500')
+        self.assertEqual(ticket['tax'], '200')
