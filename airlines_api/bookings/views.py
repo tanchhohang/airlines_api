@@ -462,7 +462,7 @@ class BookingViewSet(viewsets.ModelViewSet):
             <soapenv:Body>
                 <book:GetPnrDetail>
                     <strUserId>{user.user_id}</strUserId>
-                    <strPassword>{user.api_pasword}</strPassword>
+                    <strPassword>{user.api_password}</strPassword>
                     <strAgencyId>{user.agency_id}</strAgencyId>
                     <strPnrNo>{pnr_no}</strPnrNo>
                     <strLastName>{last_name}</strLastName>
@@ -495,7 +495,7 @@ class BookingViewSet(viewsets.ModelViewSet):
             <soapenv:Body>
                 <book:SalesReport>
                     <strUserId>{user.user_id}</strUserId>
-                    <strPassword>{user.api_pasword}</strPassword>
+                    <strPassword>{user.api_password}</strPassword>
                     <strAgencyId>{user.agency_id}</strAgencyId>
                     <strPnrNo>{from_date}</strPnrNo>
                     <strTicketNo>{to_date}</strTicketNo>
@@ -524,7 +524,7 @@ class BookingViewSet(viewsets.ModelViewSet):
                     'sector_pair': ticket_detail.find('SectorPair').text,
                     'class_code': ticket_detail.find('ClassCode').text,
                     'ticket_no': ticket_detail.find('TicketNo').text,
-                    'passenger_name': ticket_detail.find('PassengerMame').text,
+                    'passenger_name': ticket_detail.find('PassengerName').text,
                     'nationality': ticket_detail.find('Nationality').text,
                     'pax_type': ticket_detail.find('PaxType').text,
                     'currency': ticket_detail.find('Currency').text,
