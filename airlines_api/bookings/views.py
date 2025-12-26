@@ -6,12 +6,16 @@ from rest_framework.permissions import(
     IsAuthenticated,
     AllowAny
 )
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
 from .models import *
 from .serializer import *
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 import xml.etree.ElementTree as ET
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.vary import vary_on_headers
 
 class UserViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Booking.objects.select_related(
@@ -29,9 +33,20 @@ class SectorViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = SectorSerializer
     permission_classes = [IsAuthenticated]
 
+    @method_decorator(vary_on_headers('Authorization'))
+    @method_decorator(cache_page(60 * 15, key_prefix='sector_list'))
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+    
+    def get_queryset(self):
+        import time
+        time.sleep(2)
+        return super().get_queryset()
+
     @action(methods=['POST'],detail=False)
     def sector_code(self,request):
         user = request.user
+
         soap_body = f"""
         <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
         xmlns:book="http://booking.us.org/">
@@ -77,6 +92,11 @@ class AirlinesViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Airline.objects.all()
     serializer_class = AirlineSerializer
     permission_classes = [IsAuthenticated]
+
+    @method_decorator(vary_on_headers('Authorization'))
+    @method_decorator(cache_page(60 * 15, key_prefix='airline_list'))
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
 
     @action(methods=['POST'],detail=False)
     def check_balance(self,request):
@@ -131,7 +151,7 @@ class BookingViewSet(viewsets.ModelViewSet):
         'booking__arrival'
     )
     serializer_class = BookingSerializer
-    permission_classes = [IsAuthenticated]
+    # permission_classes = [IsAuthenticated]
 
     @action(methods=['POST'], detail=False)
     def flight_availability(self, request):
@@ -489,6 +509,13 @@ class BookingViewSet(viewsets.ModelViewSet):
         user = request.user
         from_date = request.data.get('from_date')
         to_date = request.data.get('to_date')
+
+        cache_key = f"sales_{user.user_id}_{from_date}_{to_date}"
+        cached_data = cache.get(cache_key)
+
+        if cached_data:
+            return Response(cached_data, status=status.HTTP_200_OK)
+            
         soap_body = f"""
         <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
         xmlns:book="http://booking.us.org/">
@@ -532,6 +559,13 @@ class BookingViewSet(viewsets.ModelViewSet):
                     'fsc': ticket_detail.find('FSC').text,
                     'tax': ticket_detail.find('TAX').text,
                 })
+
+            report_data = {
+                'sales_report': tickets,
+                'total_tickets': len(tickets)
+            }
+
+            cache.set(cache_key, report_data, timeout=900)
             
             return Response({
                 'sales_report': tickets,
