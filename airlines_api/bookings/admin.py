@@ -1,3 +1,7 @@
 from django.contrib import admin
+from .models import Sector, Airline, Passenger, Booking
 
-# Register your models here.
+admin.site.register(Sector)
+admin.site.register(Airline)
+admin.site.register(Passenger)
+admin.site.register(Booking)
