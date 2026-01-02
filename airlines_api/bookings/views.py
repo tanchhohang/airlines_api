@@ -16,6 +16,9 @@ from rest_framework.response import Response
 import xml.etree.ElementTree as ET
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.vary import vary_on_headers
+from .mixins import UserAuthenticationMixin 
+from django.core.cache import cache
+
 
 class UserViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Booking.objects.select_related(
@@ -28,7 +31,7 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
     )
     serializer_class = UserSerializer
 
-class SectorViewSet(viewsets.ReadOnlyModelViewSet):
+class SectorViewSet(UserAuthenticationMixin, viewsets.ReadOnlyModelViewSet):
     queryset= Sector.objects.all()  
     serializer_class = SectorSerializer
     permission_classes = [IsAuthenticated]
@@ -45,14 +48,14 @@ class SectorViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(methods=['POST'],detail=False)
     def sector_code(self,request):
-        user = request.user
-
+        user_creds = self.get_user_credentials()
+        
         soap_body = f"""
         <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
         xmlns:book="http://booking.us.org/">
             <soapenv:Body>
                 <book:SectorCode>
-                    <strUserId>{user.user_id}</strUserId>
+                    <strUserId>{user_creds['strUserId']}</strUserId>
                 </book:SectorCode>
             </soapenv:Body>
         </soapenv:Envelope>
@@ -71,13 +74,11 @@ class SectorViewSet(viewsets.ReadOnlyModelViewSet):
             for sector in sector_xml.findall('Sector'):
                 code = sector.find('SectorCode').text
                 name = sector.find('SectorName').text
-
                 #save/update to database
                 sector_obj, created = Sector.objects.update_or_create(
                     sector_code=code,
                     defaults={"sector_name": name}
                 )
-
                 sector_list.append(sector_obj)
 
             serializer = SectorSerializer(sector_list, many=True)
@@ -88,7 +89,7 @@ class SectorViewSet(viewsets.ReadOnlyModelViewSet):
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-class AirlinesViewSet(viewsets.ReadOnlyModelViewSet):
+class AirlinesViewSet(UserAuthenticationMixin, viewsets.ReadOnlyModelViewSet):
     queryset = Airline.objects.all()
     serializer_class = AirlineSerializer
     permission_classes = [IsAuthenticated]
@@ -100,14 +101,14 @@ class AirlinesViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(methods=['POST'],detail=False)
     def check_balance(self,request):
-        user = request.user
+        user_creds = self.get_user_credentials()
         airline_id = request.data.get('airline_id')
         soap_body = f"""
         <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
         xmlns:book="http://booking.us.org/">
             <soapenv:Body>
                 <book:CheckBalance>
-                    <strUserId>{user.user_id}</strUserId>
+                    <strUserId>{user_creds['strUserId']}</strUserId>
                     <strAirlineId>{airline_id}</strAirlineId>
                 </book:CheckBalance>
             </soapenv:Body>
@@ -143,7 +144,7 @@ class PassengerViewSet(viewsets.ModelViewSet):
     queryset = Passenger.objects.all()
     serializer_class = PassengerSerializer
 
-class BookingViewSet(viewsets.ModelViewSet):
+class BookingViewSet(UserAuthenticationMixin, viewsets.ModelViewSet):
     queryset = Passenger.objects.select_related(
         'booking',
         'booking__airline',
@@ -156,9 +157,10 @@ class BookingViewSet(viewsets.ModelViewSet):
     @action(methods=['POST'], detail=False)
     def flight_availability(self, request):
         serializer = FlightAvailabilitySerializer(data=request.data)
-        user = request.user
+        user_creds = self.get_user_credentials()
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        
         sector_from = data['sector_from'].sector_code
         sector_to = data['sector_to'].sector_code
 
@@ -167,9 +169,9 @@ class BookingViewSet(viewsets.ModelViewSet):
         xmlns:book="http://booking.us.org/">
             <soapenv:Body>
                 <book:FlightAvailability>
-                    <strUserId>{user.user_id}</strUserId>
-                    <strPassword>{user.api_password}</strPassword>
-                    <strAgencyId>{user.agency_id}</strAgencyId>
+                    <strUserId>{user_creds['strUserId']}</strUserId>
+                    <strPassword>{user_creds['strPassword']}</strPassword>
+                    <strAgencyId>{user_creds['strAgencyId']}</strAgencyId>
                     <strSectorFrom>{sector_from}</strSectorFrom>
                     <strSectorTo>{sector_to}</strSectorTo>
                     <strFlightDate>{data['flight_date']}</strFlightDate>
