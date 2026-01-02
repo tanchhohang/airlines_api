@@ -16,7 +16,7 @@ from rest_framework.response import Response
 import xml.etree.ElementTree as ET
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.vary import vary_on_headers
-from .mixins import UserAuthenticationMixin 
+from .mixins import UserAuthenticationMixin, SOAPRequestMixin
 from django.core.cache import cache
 
 
@@ -31,7 +31,7 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
     )
     serializer_class = UserSerializer
 
-class SectorViewSet(UserAuthenticationMixin, viewsets.ReadOnlyModelViewSet):
+class SectorViewSet(UserAuthenticationMixin, SOAPRequestMixin, viewsets.ReadOnlyModelViewSet):
     queryset= Sector.objects.all()  
     serializer_class = SectorSerializer
     permission_classes = [IsAuthenticated]
@@ -50,46 +50,30 @@ class SectorViewSet(UserAuthenticationMixin, viewsets.ReadOnlyModelViewSet):
     def sector_code(self,request):
         user_creds = self.get_user_credentials()
         
-        soap_body = f"""
-        <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
-        xmlns:book="http://booking.us.org/">
-            <soapenv:Body>
-                <book:SectorCode>
-                    <strUserId>{user_creds['strUserId']}</strUserId>
-                </book:SectorCode>
-            </soapenv:Body>
-        </soapenv:Envelope>
-        """
-        try:
-            response = requests.post( #send SOAP request to server
-                'SOAP_ENDPOINT_URL',
-                data=soap_body,
-                headers={'Content-Type': 'text/xml'}
+        soap_body = self.build_soap_envelope('SectorCode', user_creds)
+        root = self.make_soap_request(soap_body)
+        if root is None:
+            return self.handle_soap_error("Failed to get sector codes")
+        sector_data = self.extract_soap_return(root)
+
+        if sector_data is None:
+            return self.handle_soap_error("Failed to parse sector data")
+
+        sector_list = []
+        for sector in sector_data.findall('Sector'):
+            code = sector.find('SectorCode').text
+            name = sector.find('SectorName').text
+            
+            sector_obj, created = Sector.objects.update_or_create(
+                sector_code=code,
+                defaults={"sector_name": name}
             )
-            root = ET.fromstring(response.text) #parse xml response to str
-            sector_data = root.find(".//{http://booking.us.org/}return").text.strip()
-            sector_xml = ET.fromstring(sector_data)
-            sector_list = []
+            sector_list.append(sector_obj)
 
-            for sector in sector_xml.findall('Sector'):
-                code = sector.find('SectorCode').text
-                name = sector.find('SectorName').text
-                #save/update to database
-                sector_obj, created = Sector.objects.update_or_create(
-                    sector_code=code,
-                    defaults={"sector_name": name}
-                )
-                sector_list.append(sector_obj)
+        serializer = SectorSerializer(sector_list, many=True)
+        return Response({'sectors': serializer.data})
 
-            serializer = SectorSerializer(sector_list, many=True)
-            return Response({
-                'sectors': serializer.data
-            })
-
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-class AirlinesViewSet(UserAuthenticationMixin, viewsets.ReadOnlyModelViewSet):
+class AirlinesViewSet(UserAuthenticationMixin, SOAPRequestMixin, viewsets.ReadOnlyModelViewSet):  # CHANGED: Added SOAPRequestMixin
     queryset = Airline.objects.all()
     serializer_class = AirlineSerializer
     permission_classes = [IsAuthenticated]
@@ -103,48 +87,34 @@ class AirlinesViewSet(UserAuthenticationMixin, viewsets.ReadOnlyModelViewSet):
     def check_balance(self,request):
         user_creds = self.get_user_credentials()
         airline_id = request.data.get('airline_id')
-        soap_body = f"""
-        <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
-        xmlns:book="http://booking.us.org/">
-            <soapenv:Body>
-                <book:CheckBalance>
-                    <strUserId>{user_creds['strUserId']}</strUserId>
-                    <strAirlineId>{airline_id}</strAirlineId>
-                </book:CheckBalance>
-            </soapenv:Body>
-        </soapenv:Envelope>
-        """
-        
-        try:
-            response = requests.post(
-                'SOAP_ENDPOINT_URL',
-                data=soap_body,
-                headers={'Content-Type': 'text/xml'}
-            )
 
-            root = ET.fromstring(response.text)
-            balance_data = root.find(".//{http://booking.us.org/}return").text.strip()
-            balance_xml = ET.fromstring(balance_data)
+        params = {**user_creds, 'strAirlineId': airline_id}
+        soap_body = self.build_soap_envelope('CheckBalance', params)
 
-            balance_list = []
-            for airline in balance_xml.findall('Airline'):
-                balance_list.append({
-                    'airline_name': airline.find('AirlineName').text,
-                    'agency_name': airline.find('AgencyName').text,
-                    'balance_amount': airline.find('BalanceAmount').text
-                })
+        root = self.make_soap_request(soap_body)
+        if root is None:
+            return self.handle_soap_error("Failed to check balance")
 
-            return Response({'balances': balance_list}, status=status.HTTP_200_OK)
-   
-        except:
-            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        balance_data = self.extract_soap_return(root)
+        if balance_data is None:
+            return self.handle_soap_error("Failed to parse balance data")
+
+        balance_list = []
+        for airline in balance_data.findall('Airline'):
+            balance_list.append({
+                'airline_name': airline.find('AirlineName').text,
+                'agency_name': airline.find('AgencyName').text,
+                'balance_amount': airline.find('BalanceAmount').text
+            })
+
+        return Response({'balances': balance_list}, status=status.HTTP_200_OK)
 
 
 class PassengerViewSet(viewsets.ModelViewSet):
     queryset = Passenger.objects.all()
     serializer_class = PassengerSerializer
 
-class BookingViewSet(UserAuthenticationMixin, viewsets.ModelViewSet):
+class BookingViewSet(UserAuthenticationMixin, SOAPRequestMixin, viewsets.ModelViewSet):  # CHANGED: Added SOAPRequestMixin
     queryset = Passenger.objects.select_related(
         'booking',
         'booking__airline',
@@ -152,7 +122,6 @@ class BookingViewSet(UserAuthenticationMixin, viewsets.ModelViewSet):
         'booking__arrival'
     )
     serializer_class = BookingSerializer
-    # permission_classes = [IsAuthenticated]
 
     @action(methods=['POST'], detail=False)
     def flight_availability(self, request):
@@ -186,7 +155,6 @@ class BookingViewSet(UserAuthenticationMixin, viewsets.ModelViewSet):
         </soapenv:Envelope>
         """
 
-        #TODO: Parse XML to JSON
         try:
             response = requests.post(
                 'soapurl',
@@ -278,48 +246,36 @@ class BookingViewSet(UserAuthenticationMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True) 
         data = serializer.validated_data
 
-        soap_body=f"""
-        <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
-        xmlns:book="http://booking.us.org/">
-            <soapenv:Body>
-                <book:Reservation>
-                    <strFlightId>{data['flight_id']}</strFlightId>
-                    <strReturnFlightId>{data.get('return_flight_id', '')}</strReturnFlightId>
-                </book:Reservation>
-            </soapenv:Body>
-        </soapenv:Envelope>
-        """
+        params = {
+            'strFlightId': data['flight_id'],
+            'strReturnFlightId': data.get('return_flight_id', '')
+        }
+        soap_body = self.build_soap_envelope('Reservation', params)
 
-        try:
-            response = requests.post(
-                'soapurl',
-                data = soap_body,
-                headers={'Content-Type': 'text/xml'},
-            )
+        root = self.make_soap_request(soap_body)
+        if root is None:
+            return self.handle_soap_error("Failed to make reservation")
 
-            root = ET.fromstring(response.text)
-            pnr_detail = root.find(".//{http://booking.us.org/}return") 
-            pnr_element = ET.fromstring(pnr_detail.text)                
-            reservation_info = {
-                'airline_id':pnr_element.find('AirlineID').text,
-                'flight_id': pnr_element.find('FlightId').text,
-                'pnr_no': pnr_element.find('PNRNO').text,
-                'reservation_status': pnr_element.find('ReservationStatus').text,
-                'ttl_date': pnr_element.find('TTLDate').text,
-                'ttl_time': pnr_element.find('TTLTime').text,
-            }
-            return Response({'reservation info': reservation_info}, status=status.HTTP_200_OK)
-        except Exception as e:
-            print("RESERVATION ERROR:", e)
-            raise
+        pnr_detail = self.extract_soap_return(root)
+        if pnr_detail is None:
+            return self.handle_soap_error("Failed to parse reservation data")
+        
+        reservation_info = {
+            'airline_id': pnr_detail.find('AirlineID').text,
+            'flight_id': pnr_detail.find('FlightId').text,
+            'pnr_no': pnr_detail.find('PNRNO').text,
+            'reservation_status': pnr_detail.find('ReservationStatus').text,
+            'ttl_date': pnr_detail.find('TTLDate').text,
+            'ttl_time': pnr_detail.find('TTLTime').text,
+        }
+        return Response({'reservation info': reservation_info}, status=status.HTTP_200_OK)
     
     @action(methods=['POST'], detail=False)
-    def issue_ticket(self,request): #online help on this one
+    def issue_ticket(self,request):
         serializer = IssueTicketSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        #building passenger XML
         xml_parts = ['<?xml version="1.0" ?><PassengerDetail>']
         for pax in data['passenger_detail']:
             xml_parts.append(f"""<Passenger>
@@ -475,103 +431,68 @@ class BookingViewSet(UserAuthenticationMixin, viewsets.ModelViewSet):
 
     @action(methods=['POST'], detail=False)
     def get_pnr_detail(self, request):
-        user = request.user
+        user_creds = self.get_user_credentials()
         pnr_no = request.data.get('pnr_no')
         last_name = request.data.get('last_name')
-        soap_body = f"""
-        <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
-        xmlns:book="http://booking.us.org/">
-            <soapenv:Body>
-                <book:GetPnrDetail>
-                    <strUserId>{user.user_id}</strUserId>
-                    <strPassword>{user.api_password}</strPassword>
-                    <strAgencyId>{user.agency_id}</strAgencyId>
-                    <strPnrNo>{pnr_no}</strPnrNo>
-                    <strLastName>{last_name}</strLastName>
-                </book:GetPnrDetail>
-            </soapenv:Body>
-        </soapenv:Envelope>
-        """
+        
+        params = {**user_creds, 'strPnrNo': pnr_no, 'strLastName': last_name}
+        soap_body = self.build_soap_envelope('GetPnrDetail', params)
 
-        try:
-            response = requests.post(
-                'SOAP_ENDPOINT_URL',
-                data=soap_body,
-                headers={'Content-Type': 'text/xml'}
-            )
-            root = ET.fromstring(response.text)
-            pnr_detail = root.find(".//{http://booking.us.org/}return")
-            return Response({'pnr_maintenance_url': pnr_detail.text}, status=status.HTTP_200_OK)
-
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        root = self.make_soap_request(soap_body)
+        if root is None:
+            return self.handle_soap_error("Failed to get PNR detail")
+        
+        pnr_detail = root.find(".//{http://booking.us.org/}return")
+        return Response({'pnr_maintenance_url': pnr_detail.text if pnr_detail is not None else ''}, status=status.HTTP_200_OK)
 
     @action(methods=['POST'], detail=False)
     def sales_report(self, request):
-        user = request.user
+        user_creds = self.get_user_credentials()
         from_date = request.data.get('from_date')
         to_date = request.data.get('to_date')
 
-        cache_key = f"sales_{user.user_id}_{from_date}_{to_date}"
+        cache_key = f"sales_{user_creds['strUserId']}_{from_date}_{to_date}" 
         cached_data = cache.get(cache_key)
 
         if cached_data:
             return Response(cached_data, status=status.HTTP_200_OK)
-            
-        soap_body = f"""
-        <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
-        xmlns:book="http://booking.us.org/">
-            <soapenv:Body>
-                <book:SalesReport>
-                    <strUserId>{user.user_id}</strUserId>
-                    <strPassword>{user.api_password}</strPassword>
-                    <strAgencyId>{user.agency_id}</strAgencyId>
-                    <strPnrNo>{from_date}</strPnrNo>
-                    <strTicketNo>{to_date}</strTicketNo>
-                </book:SalesReport>
-            </soapenv:Body>
-        </soapenv:Envelope>
-        """
         
-        try:
-            response = requests.post(
-                'SOAP_ENDPOINT_URL',
-                data=soap_body,
-                headers={'Content-Type': 'text/xml'}
-            )
-            
-            root = ET.fromstring(response.text)
-            sales_summary = root.find(".//{http://booking.us.org/}SalesSummary")
-            tickets = []
-            for ticket_detail in sales_summary.findall('TicketDetail'):
-                tickets.append({
-                    'pnr_no': ticket_detail.find('PnrNo').text,
-                    'airline': ticket_detail.find('Airline').text,
-                    'issue_date': ticket_detail.find('IssueDate').text,
-                    'flight_no': ticket_detail.find('FlightNo').text,
-                    'flight_date': ticket_detail.find('FlightDate').text,
-                    'sector_pair': ticket_detail.find('SectorPair').text,
-                    'class_code': ticket_detail.find('ClassCode').text,
-                    'ticket_no': ticket_detail.find('TicketNo').text,
-                    'passenger_name': ticket_detail.find('PassengerName').text,
-                    'nationality': ticket_detail.find('Nationality').text,
-                    'pax_type': ticket_detail.find('PaxType').text,
-                    'currency': ticket_detail.find('Currency').text,
-                    'fare': ticket_detail.find('Fare').text,
-                    'fsc': ticket_detail.find('FSC').text,
-                    'tax': ticket_detail.find('TAX').text,
-                })
+        params = {**user_creds, 'strPnrNo': from_date, 'strTicketNo': to_date}
+        soap_body = self.build_soap_envelope('SalesReport', params)
 
-            report_data = {
-                'sales_report': tickets,
-                'total_tickets': len(tickets)
-            }
+        root = self.make_soap_request(soap_body)
+        if root is None:
+            return self.handle_soap_error("Failed to fetch sales report")
+        
+        sales_summary = root.find(".//{http://booking.us.org/}SalesSummary")
+        if sales_summary is None:
+            return self.handle_soap_error("Failed to parse sales report")
+        
+        tickets = []
+        for ticket_detail in sales_summary.findall('TicketDetail'):
+            tickets.append({
+                'pnr_no': ticket_detail.find('PnrNo').text,
+                'airline': ticket_detail.find('Airline').text,
+                'issue_date': ticket_detail.find('IssueDate').text,
+                'flight_no': ticket_detail.find('FlightNo').text,
+                'flight_date': ticket_detail.find('FlightDate').text,
+                'sector_pair': ticket_detail.find('SectorPair').text,
+                'class_code': ticket_detail.find('ClassCode').text,
+                'ticket_no': ticket_detail.find('TicketNo').text,
+                'passenger_name': ticket_detail.find('PassengerName').text,
+                'nationality': ticket_detail.find('Nationality').text,
+                'pax_type': ticket_detail.find('PaxType').text,
+                'currency': ticket_detail.find('Currency').text,
+                'fare': ticket_detail.find('Fare').text,
+                'fsc': ticket_detail.find('FSC').text,
+                'tax': ticket_detail.find('TAX').text,
+            })
 
-            cache.set(cache_key, report_data, timeout=900)
-            
-            return Response({
-                'sales_report': tickets,
-                'total_tickets': len(tickets)
-            }, status=status.HTTP_200_OK)
-        except:
-            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        report_data = {
+            'sales_report': tickets,
+            'total_tickets': len(tickets)
+        }
+
+        cache.set(cache_key, report_data, timeout=900)
+        
+        return Response(report_data, status=status.HTTP_200_OK) 
